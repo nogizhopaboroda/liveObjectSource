@@ -1,3 +1,4 @@
+/* for trsting */
 var $LO = function (object, events) {
 	var liveObject = function (obj) {
 
