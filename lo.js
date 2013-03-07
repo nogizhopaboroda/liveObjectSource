@@ -1,293 +1,283 @@
-var $LO = function (object, events) {
-	var liveObject = function (obj) {
+(function() {
 
-        this._id = 0;
-        this.__evolvent = [];
+	var global = this;
 
-        this._buildingMode = true;
-        var self = this;
-
-        this._buildLiveObject = function (object, parent) {
-            if(typeof object == "object") {
-                for(var part in object) {
-                    var _type =  this._getType(object[part]);
-                    this.factories[ (this.factories[_type]) ? _type : "default" ](object[part], parent, part, this);
-                }
-            } else {
-                throw new Error("must be an object");
-            }
-        };
-
-		this._getType = function (variable) {
-            if(typeof variable === "object") {
-                if(variable == null) return "null";
-                if(variable instanceof Array) return "array";
-                if(variable instanceof Date) return "date";
-                return typeof variable;
-            }
-            if(typeof variable === "number") {
-                if(variable.toString().indexOf('.') != -1) return "float";
-                else return "integer";
-            }
-            if(typeof variable === "boolean") return "bool";
-            if(typeof variable === "function") {
-                if(variable.type) return variable.type;
-                return "funtion";
-            }
-            return typeof variable;
+	/*
+	 *	Object.create polyfill from MDN
+	 *  https://developer.mozilla.org/en-US/docs/JavaScript/Reference/Global_Objects/Object/create#Polyfill
+	 */
+	if (!Object.create) {
+		Object.create = function (o) {
+			if (arguments.length > 1) {
+				throw new Error('Object.create implementation only accepts the first parameter.');
+			}
+			function F() {}
+			F.prototype = o;
+			return new F();
 		};
+	}
 
-        this.pushToEvolvent = function (data, type, handlers) { //протаскивать handlers
+	/*
+	* нужен polyfill для indexOf
+	* */
 
-            self.__evolvent[self._id] = {};
-            self.__evolvent[self._id].value = data;
-            self.__evolvent[self._id].type  = type;
-            if(handlers) self.__evolvent[self._id].handlers  = handlers;
-
-            self._id++;
-
-            return this.getCurrentEvolventIndex();
-        };
-
-        this.getCurrentEvolventIndex = function () {
-            return (function (id) {
-                return id - 1;
-            })(self._id);
-        };
-
-        this.factories = {
-            "default": function (objectPart, parent, partName) {
-
-                var id = self.pushToEvolvent(objectPart, self._getType(objectPart));
-                Object.defineProperty(parent, partName, {
-                    set: function (newValue) {
-
-                        if(self.__evolvent[id].handlers && self.__evolvent[id].handlers['onSet']) {
-                            for(var i = 0; i < self.__evolvent[id].handlers['onSet'].length; i++) {
-                                self.__evolvent[id].handlers['onSet'][i].call(parent, newValue, parent, "set", self.__evolvent[id]);
-                            }
-                        } else if (self.__commonHandlers && self.__commonHandlers['onSet']) {
-                            self.__commonHandlers['onSet'].call(parent, newValue, parent, "set", self.__evolvent[id]);
-                        }
-
-                        self.__evolvent[id].value = newValue;
-                    },
-                    get: function () {
-
-                        if(self.__evolvent[id].handlers && self.__evolvent[id].handlers['onGet']) {
-                            for(var i = 0; i < self.__evolvent[id].handlers['onGet'].length; i++) {
-                                self.__evolvent[id].handlers['onGet'][i].call(parent, self.__evolvent[id].value, "get", self.__evolvent[id]);
-                            }
-                        } else if (self.__commonHandlers && self.__commonHandlers['onGet']) {
-                            self.__commonHandlers['onGet'].call(parent, self.__evolvent[id].value, "get", self.__evolvent[id]);
-                        }
-
-                        var _value = new Object(self.__evolvent[id].value);
-                        self.decorate.defaultGetter(_value, id, parent, partName);
-                        if(self.decorate[self._getType(self.__evolvent[id].value)]) {
-                            self.decorate[self._getType(self.__evolvent[id].value)](_value, id, parent, partName, self);
-                        }
-
-                        for(var dec in $LO.core.defaultGetterDecorators) {
-                            var types = $LO.core.defaultGetterDecorators[dec].types || "all";
-                            //console.log(self._getType(self.__evolvent[id].value));
-                            if(types == "all" || types.indexOf(self._getType(self.__evolvent[id].value)) != -1) {
-                                Object.defineProperty(_value, dec, {
-                                    value: $LO.core.defaultGetterDecorators[dec].decorate,
-                                    "configurable": $LO.core.defaultGetterDecorators[dec].configurable || true
-                                });
-                            }
-                        }
-
-                        return _value;
-                    },
-                    "configurable": true
-                });
-                return parent[partName];
-            },
-            "array": function (objectPart, parent, partName) {
-                parent[partName] = objectPart;
-                self._buildLiveObject(objectPart, parent[partName]);
-                self.decorate['array'](parent[partName]);
-                return parent[partName];
-            },
-            "object": function (objectPart, parent, partName) {
-                parent[partName] = objectPart;
-                self._buildLiveObject(objectPart, parent[partName]);
-                self.decorate['object'](parent[partName], parent);
-                return parent[partName];
-            }
-        };
-
-        this.decorate = {
-            "object": function (object, parent) {
-                object.extends = function (obj) {
-
-                    if (self.__commonHandlers && self.__commonHandlers['onExtends']) {
-                        self.__commonHandlers['onExtends'].call(object, obj, "extends");
-                    }
-
-                    self._buildLiveObject(obj, object);
-                };
-
-                object.parent = function () {
-                    return parent;
-                };
-
-                Object.defineProperty(object, "extends", { enumerable: false });
-                Object.defineProperty(object, "parent", { enumerable: false });
-
-            },
-            "array": function (array) {
-
-                array.push = function (value) {
-
-                    if(self.__evolvent[array.__id].handlers && self.__evolvent[array.__id].handlers['onPush']) {
-                        for(var i = 0; i < self.__evolvent[array.__id].handlers['onPush'].length; i++) {
-                            self.__evolvent[array.__id].handlers['onPush'][i].call(array, value, "push");
-                        }
-                    } else if (self.__commonHandlers && self.__commonHandlers['onPush']) {
-                        self.__commonHandlers['onPush'].call(array, value, "push");
-                    }
-
-                    var _type =  self._getType(value);
-                    self.factories[ (self.factories[_type]) ? _type : "default" ](value, array, (array.length), self._id);
-
-                };
-
-                array.delete = function (index) {
-
-                    var _fieldIndex = array[index].__id;
-
-                    if(self.__evolvent[array.__id].handlers && self.__evolvent[array.__id].handlers['onDelete']) {
-                        for(var i = 0; i < self.__evolvent[array.__id].handlers['onDelete'].length; i++) {
-                            self.__evolvent[array.__id].handlers['onDelete'][i].call(array, index, "delete", (self.__evolvent[ _fieldIndex ] ? self.__evolvent[ _fieldIndex ] : undefined));
-                        }
-                    } else if (self.__commonHandlers && self.__commonHandlers['onDelete']) {
-                        self.__commonHandlers['onDelete'].call(array, index, "delete", (self.__evolvent[ _fieldIndex ] ? self.__evolvent[ _fieldIndex ] : undefined) );
-                    }
-
-                    array.splice(index, 1);
-
-                    self.__evolvent[ _fieldIndex ] = null;
-                    /* or
-                    *  delete that[index];
-                    *  that.length--;
-                    *  if need should redefine splice();
-                    * */
-                };
-
-                array.addEventListener = function (eventType, handler) {
-                    //сделать проверку что handler есть и он функция
-                    if(!array.__id) {
-                        var _handlers = {};
-                            _handlers[eventType] = [handler];
-                        var id = self.pushToEvolvent(null, "eventsHandlers", _handlers);
-                        Object.defineProperty(array, "__id", { value: id, enumerable: false });
-                    } else {
-                        if(!self.__evolvent[array.__id].handlers[eventType]) {
-                            self.__evolvent[array.__id].handlers[eventType] = [];
-                        }
-                        self.__evolvent[array.__id].handlers[eventType].push(handler);
-                    }
-                };
-
-                Object.defineProperty(array, "push", { enumerable: false });
-                Object.defineProperty(array, "delete", { enumerable: false });
-            },
-            "defaultGetter": function (value, id, parent, ptN) {
-                Object.defineProperty(value, "__id", { value: id, "configurable": true});
-                Object.defineProperty(value, "parent", { value: function () { return parent; }, "configurable": true });
-                Object.defineProperty(value, "addEventListener", {
-                    value: function (eventType, handler) {
-                        if(!self.__evolvent[id].handlers) self.__evolvent[id].handlers = {};
-                        if(!self.__evolvent[id].handlers[eventType]) self.__evolvent[id].handlers[eventType] = [];
-                        self.__evolvent[id].handlers[eventType].push(handler);
-                    },
-                    "configurable": true
-                });
-                Object.defineProperty(value, "remove", {
-                    value: function () {
-                        //+ eventHandling
-                        self.__evolvent[id] = null;
-                        delete parent[ptN];
-                    },
-                    "configurable": true
-                });
-            }
-        };
-
-        for(var factory in $LO.core.factories) {
-            this.factories[factory] = $LO.core.factories[factory];
-        }
-        for(var decorator in $LO.core.decorators) {
-            this.decorate[decorator] = $LO.core.decorators[decorator];
-        }
-
-        this._buildLiveObject(obj, this);
-        this._buildingMode = false;
+	var _copy = function(object){
+		return Object.create(object);
 	};
 
-    var __lo = new liveObject(object);
+	global.$LO = function(object) {
+		var clonedObject = _copy(object);
+		clonedObject.__id__ = 0;
+		clonedObject.__evolvent__ = [];
 
-    if(events !== undefined) {
-        __lo.__commonHandlers = events;
-    }
+		clonedObject.__getType__ = function (variable) {
+			if(typeof variable === "object") {
+				if(variable == null) return "null";
+				if(variable instanceof Array) return "array";
+				if(variable instanceof Date) return "date";
+				return typeof variable;
+			}
+			if(typeof variable === "number") {
+				if(variable.toString().indexOf('.') != -1) return "float";
+				else return "integer";
+			}
+			if(typeof variable === "boolean") return "bool";
+			if(typeof variable === "function") {
+				if(variable.type) return variable.type;
+				return "function";
+			}
+			return typeof variable;
+		};
 
-	return __lo;
-};
+		clonedObject.__pushToEvolvent__ = function (data, handlers) { //протаскивать handlers
 
-$LO.core = {};
-$LO.core.factories = {};
-$LO.core.decorators = {};
-$LO.core.defaultGetterDecorators = {};
+			clonedObject.__evolvent__[clonedObject.__id__] = {};
+			clonedObject.__evolvent__[clonedObject.__id__].value = data;
+			clonedObject.__evolvent__[clonedObject.__id__].type  = this.__getType__(data); //переделать на функцию?
+			if(handlers) clonedObject.__evolvent__[clonedObject.__id__].handlers  = handlers;
+			clonedObject.__id__++;
+
+			return clonedObject.__getCurrentEvolventIndex__();
+		};
+
+		clonedObject.__getCurrentEvolventIndex__ = function () {
+			return (function (id) {
+				return id - 1;
+			})(clonedObject.__id__);
+		};
+
+		clonedObject.__buildLiveObject__ = function (object) {
+
+			object = object || this;
+
+			if(typeof object === "object") {
+				for(var part in object) {
+
+					if(!part.match(/__.*__/)) {
+						var type =  this.__getType__(object[part]);
+						global.$LO.factories[ (global.$LO.factories[type]) ? type : "default" ].call(this, object, part); //
+					}
+
+				}
+			} else {
+				//Object.defineProperty(window)
+			}
+		};
+
+		clonedObject.__buildLiveObject__();
+
+		return clonedObject;
+	};
+
+	global.$LO.factories = {
+		"default": function (object, part) {
+
+			var self = this;
+			var id = self.__pushToEvolvent__(object[part]);
+
+			Object.defineProperty(object, part, {
+				set: function (newValue) {
+					//console.log("setter");
+
+					var event = {
+						"type": "set",
+						"target": object,
+						"property": part,
+						"newValue": newValue,
+						"oldValue": self.__evolvent__[id].value,
+						"id": id
+					};
+
+					if(self.__evolvent__[id].handlers && self.__evolvent__[id].handlers['onSet']) {
+						for(var i = 0; i < self.__evolvent__[id].handlers['onSet'].length; i++) {
+							self.__evolvent__[id].handlers['onSet'][i].call(object, event, newValue);  //подумать над параметрами и их порядком следования
+						}
+					}
+
+					self.__evolvent__[id].value = newValue;
+
+				},
+				get: function () {
+					//console.log("getter");
+
+					var event = {
+						"type": "get",
+						"target": object,
+						"property": part,
+						"value": self.__evolvent__[id].value,
+						"id": id
+					};
+
+					if(self.__evolvent__[id].handlers && self.__evolvent__[id].handlers['onGet']) {
+						for(var i = 0; i < self.__evolvent__[id].handlers['onGet'].length; i++) {
+							self.__evolvent__[id].handlers['onGet'][i].call(object, event); //подумать над параметрами и их порядком следования
+						}
+					}
+
+					var value = new Object(self.__evolvent__[id].value);
+					for(var i = 0; i < global.$LO.decorators.length; i++){
+						if(global.$LO.decorators[i]["types"].indexOf(self.__evolvent__[id].type) !== -1 || global.$LO.decorators[i]["types"].indexOf("all") !== -1){
+							Object.defineProperty(value, global.$LO.decorators[i]["property"], {
+								value: global.$LO.decorators[i]["valueGenerator"].call(self, object, part, self.__evolvent__[id], id, value),
+								configurable: global.$LO.decorators[i]["configurable"] || true
+							});
+						}
+					}
+					return value;
+
+				},
+				"configurable": true
+			});
+
+			return object[part];
+		},
+		"array": function (object, part) {
+			object[part] = _copy(object[part]);
+			this.__buildLiveObject__(object[part]);
+			//self.decorate['array'](parent[partName]);
+			return object[part];
+		},
+		"object": function (object, part) {
+			object[part] = _copy(object[part]);
+			this.__buildLiveObject__(object[part]);
+			//this.decorate['object'](parent[partName], parent);
+			return object[part];
+		}
+	};
+
+	global.$LO.decorators = [
+		{
+			"types": ["all"], //["integer", "string", ...]
+			"property": "__id__",
+			"valueGenerator": function(object, part, evolventContainer, id, value){
+				return id;
+			}
+		},
+		{
+			"types": ["all"], //["integer", "string", ...]
+			"property": "parent",
+			"valueGenerator": function(object, part, evolventContainer, id, value){
+				return object;
+			}
+		},
+		{
+			"types": ["all"],
+			"property": "addEventListener",
+			"valueGenerator": function(object, part, evolventContainer, id, value){
+				return function (eventType, handler) {
+					if(!evolventContainer.handlers) evolventContainer.handlers = {};
+					if(!evolventContainer.handlers[eventType]) evolventContainer.handlers[eventType] = [];
+					evolventContainer.handlers[eventType].push(handler);
+				}
+			}
+		}
+	];
+
+}).call(this);
 
 
 $LO.computed = function (f) {
-    f.type = "computed";
-    return f;
+	f.type = "computed";
+	return f;
 };
 
-$LO.core.factories["computed"] = function (objectPart, parent, partName, self) {
+$LO.factories["computed"] = function (object, part) {
 
-    var id = self.pushToEvolvent(objectPart, "computed");
+	var self = this;
+	var id = self.__pushToEvolvent__(object[part], "computed");
 
-    Object.defineProperty(parent, partName, {
-        set: function (newValue) {
-            self.__evolvent[id].value = newValue;
-        },
-        get: function () {
-            return self.__evolvent[id].value.call(parent, self, self.__evolvent[id]);
-        }
-    });
+	Object.defineProperty(object, part, {
+		set: function (newValue) {
+			self.__evolvent__[id].value = newValue;
+		},
+		get: function () {
+			return self.__evolvent__[id].value.call(object, self, self.__evolvent__[id]);
+		}
+	});
 };
 
 $LO.eventable = function (value, handlers) {
-    var _eventable = function () {};
-        _eventable.type = "eventable";
-        _eventable.value = value;
-        _eventable.handlers = handlers;
-    return _eventable;
+	var _eventable = function (){};
+	_eventable.type = "eventable";
+	_eventable.value = value;
+	_eventable.handlers = handlers;
+	return _eventable;
 };
 
-$LO.core.factories["eventable"] = function (objectPart, parent, partName, self) {
-    var _type =  self._getType(objectPart.value);
-    self.factories[ (self.factories[_type]) ? _type : "default" ](objectPart.value, parent, partName, self);
-    var id = self.getCurrentEvolventIndex();
-    self.__evolvent[id].handlers = {};
-    for(var type in objectPart.handlers) {
-        self.__evolvent[id].handlers[type] = [];
-        if(typeof objectPart.handlers[type] === "function") {
-            self.__evolvent[id].handlers[type][0] = objectPart.handlers[type];
-        } else {
-            for(var i = 0; i < objectPart.handlers[type].length; i++) {
-                self.__evolvent[id].handlers[type][i] = objectPart.handlers[type][i];
-            }
-        }
-    }
+$LO.factories["eventable"] = function (object, part) {
+	var self = this;
+	var value = object[part].value,
+		handlers = object[part].handlers;
+	object[part] = value;
+	var _type =  self.__getType__(object[part].value);
+	$LO.factories[ $LO.factories[_type] ? _type : "default" ].call(self, object, part);
+	var id = self.__getCurrentEvolventIndex__();
+	self.__evolvent__[id].handlers = {};
+	for(var type in handlers) {
+		self.__evolvent__[id].handlers[type] = [];
+		if(typeof handlers[type] === "function") {
+			self.__evolvent__[id].handlers[type][0] = handlers[type];
+		} else {
+			for(var i = 0; i < object[part].handlers[type].length; i++) {
+				self.__evolvent__[id].handlers[type][i] = handlers[type][i];
+			}
+		}
+	}
 };
 
-/* 1) Добавить фабрику и декораторы для date */
-/* 2) Определять get'er только один раз. Чтобы избежать configurable: true в декораторе */
-/* 3) добавить parent() для массивов */
-/* 4) реализовать листенеры для массивов */
+
+//console.log(b);
+
+/*console.log('lets testing');
+var timeT = function(callback){
+	var start = new Date();
+	callback();
+	var stop = new Date();
+	alert((stop - start) / 1000);
+};
+
+console.log('generating object...');
+
+var aa = {};
+var bb = {};
+var iterations = 1000;
+for(var i = 0; i < iterations; i++){
+	aa["a" + i] = { "test": "test" };
+}
+bb = $LO(aa);
+
+console.log('object generated');
+
+console.log('native object time:');
+timeT(function(){
+	for(var k = 0; k < iterations; k++){
+		console.log(aa["a" + k]);
+	}
+});
+
+console.log('live object time:');
+timeT(function(){
+	for(var k = 0; k < iterations; k++){
+		console.log(bb["a" + k]);
+	}
+});*/
